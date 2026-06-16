@@ -1,0 +1,5 @@
+URL = "https://adobeforyou.com/"
+RESELLER_USERS_URL = "https://adobeforyou.com/?page=reseller_users"
+ASSIGN_URL = "https://adobeforyou.com/?page=reseller_assign"
+USERNAME = "ws20146"
+PASSWORD = "123789456aA"

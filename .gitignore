@@ -1,0 +1,8 @@
+google_oauth_token.json
+.env
+*.json
+google_oauth_token.json
+venv/
+__pycache__/
+logs/
+*.log
