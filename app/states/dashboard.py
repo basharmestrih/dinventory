@@ -6,6 +6,7 @@ class AddProductState(StatesGroup):
     description = State()
     supplier_price = State()
     price = State()
+    image = State()
     account_type = State()
     quantity = State()
     credentials = State()
@@ -28,6 +29,8 @@ class DashboardOtherState(StatesGroup):
     waiting_for_binance_id = State()
     waiting_for_support_username = State()
     waiting_for_support_whatsapp_phone = State()
+    waiting_for_special_products = State()
+    waiting_for_wallet_balance_amount = State()
     # waiting_for_review_message = State()
 
 

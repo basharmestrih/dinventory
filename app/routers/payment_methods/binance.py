@@ -7,9 +7,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.routers.payment_methods.helpers.services import order_service
+from app.routers.payment_methods.helpers.credential_utils import get_order_payment_cancel_keyboard
 from app.services.payments.binance import BinanceService, BinanceServiceError
 from app.services.payments.binance_countdown import (
     is_checkout_active,
+    is_checkout_cancelled,
     mark_checkout_paid,
     start_checkout_countdown,
 )
@@ -82,22 +84,23 @@ async def binance_handler(callback: CallbackQuery, state: FSMContext) -> None:
     response_message = await callback.message.answer(
         _format_binance_message(instruction),
         parse_mode="Markdown",
+        reply_markup=get_order_payment_cancel_keyboard(pending_order.id),
     )
 
     if instruction.expires_at is not None:
-        _start_binance_countdown(response_message, instruction)
+        _start_binance_countdown(response_message, instruction, pending_order.id)
 
 
 def mark_binance_checkout_paid(checkout_id: str) -> None:
     mark_checkout_paid(checkout_id)
 
 
-def _start_binance_countdown(message: Message, instruction) -> None:
+def _start_binance_countdown(message: Message, instruction, order_id: int) -> None:
     checkout_id = str(getattr(instruction, "checkout_id", "") or "").strip()
     if not checkout_id:
         return
     start_checkout_countdown(checkout_id)
-    asyncio.create_task(_run_binance_countdown(message, instruction, checkout_id))
+    asyncio.create_task(_run_binance_countdown(message, instruction, checkout_id, order_id))
 
 
 def _format_binance_message(instruction, remaining_seconds: int | None = None) -> str:
@@ -117,7 +120,7 @@ def _format_binance_message(instruction, remaining_seconds: int | None = None) -
     )
 
 
-async def _run_binance_countdown(message: Message, instruction, checkout_id: str) -> None:
+async def _run_binance_countdown(message: Message, instruction, checkout_id: str, order_id: int) -> None:
     expires_at = instruction.expires_at
     if expires_at is None:
         return
@@ -128,19 +131,22 @@ async def _run_binance_countdown(message: Message, instruction, checkout_id: str
 
     remaining = _get_remaining_seconds(countdown_deadline)
     if remaining <= 0:
-        await _safe_edit_message(message, instruction, remaining, expired=True)
+        await _safe_edit_message(message, instruction, remaining, order_id=order_id, expired=True)
         await _mark_order_expired(instruction)
         return
 
     while remaining > 0:
         await asyncio.sleep(1)
+        if is_checkout_cancelled(checkout_id):
+            await _safe_edit_message(message, instruction, remaining_seconds=0, order_id=order_id, expired=True)
+            return
         if not is_checkout_active(checkout_id):
-            await _safe_edit_message(message, instruction, remaining_seconds=0, paid=True)
+            await _safe_edit_message(message, instruction, remaining_seconds=0, order_id=order_id, paid=True)
             return
         remaining = _get_remaining_seconds(countdown_deadline)
-        await _safe_edit_message(message, instruction, remaining)
+        await _safe_edit_message(message, instruction, remaining, order_id=order_id)
 
-    await _safe_edit_message(message, instruction, remaining_seconds=0, expired=True)
+    await _safe_edit_message(message, instruction, remaining_seconds=0, order_id=order_id, expired=True)
     await _mark_order_expired(instruction)
 
 
@@ -195,6 +201,7 @@ async def _safe_edit_message(
     instruction,
     remaining_seconds: int,
     *,
+    order_id: int,
     paid: bool = False,
     expired: bool = False,
 ) -> None:
@@ -214,6 +221,7 @@ async def _safe_edit_message(
         await message.edit_text(
             _format_binance_message(instruction, remaining_seconds),
             parse_mode="Markdown",
+            reply_markup=get_order_payment_cancel_keyboard(order_id),
         )
     except Exception:
         return

@@ -19,6 +19,7 @@ from app.services.payments.ewallet_constants import (
     MEEZA_PAYMENT_METHOD_ID,
 )
 from app.routers.payment_methods.helpers.services import order_service
+from app.routers.payment_methods.helpers.credential_utils import get_order_payment_cancel_keyboard
 from app.services.payments.ewallet_utils import build_qr_code_image, is_valid_phone, split_name
 from app.services.payments.ewallet import EWalletService, EWalletServiceError
 from app.services.orders.orders import OrderServiceError
@@ -140,17 +141,19 @@ async def _create_ewallet_invoice(message, customer, state: FSMContext, *, phone
         response_message = await message.answer(
             _format_invoice_message(invoice,total=str(total)),
             parse_mode="Markdown",
+            reply_markup=get_order_payment_cancel_keyboard(pending_order.id),
         )
         asyncio.create_task(
-            _run_ewallet_order_countdown(response_message, invoice, expires_at,total=str(total))
+            _run_ewallet_order_countdown(response_message, invoice, expires_at, pending_order.id, total=str(total))
         )
         return
 
     response_message = await message.answer(
         _format_invoice_message(invoice,total=str(total)),
         parse_mode="Markdown",
+        reply_markup=get_order_payment_cancel_keyboard(pending_order.id),
     )
-    asyncio.create_task(_run_ewallet_order_countdown(response_message, invoice, expires_at,total=str(total)))
+    asyncio.create_task(_run_ewallet_order_countdown(response_message, invoice, expires_at, pending_order.id, total=str(total)))
 
 
 def _format_invoice_message(invoice, remaining_seconds: int | None = None, total: str | None = None) -> str:
@@ -189,24 +192,25 @@ async def _run_ewallet_order_countdown(
     message: Message,
     invoice,
     expires_at,
+    order_id: int,
     total:str,
 ) -> None:
     invoice_id = str(getattr(invoice, "invoice_id", "") or "").strip()
     remaining = get_remaining_seconds(expires_at)
     if remaining <= 0:
-        await _safe_edit_ewallet_order_message(message, invoice, remaining, expired=True,total=str(total))
+        await _safe_edit_ewallet_order_message(message, invoice, remaining, order_id=order_id, expired=True,total=str(total))
         await _mark_ewallet_order_expired(invoice)
         return
 
     while remaining > 0:
         await asyncio.sleep(1)
         if invoice_id and not is_invoice_active(invoice_id):
-            await _safe_edit_ewallet_order_message(message, invoice, remaining_seconds=0, paid=True,total=str(total))
+            await _safe_edit_ewallet_order_message(message, invoice, remaining_seconds=0, order_id=order_id, paid=True,total=str(total))
             return
         remaining = get_remaining_seconds(expires_at)
-        await _safe_edit_ewallet_order_message(message, invoice, remaining,total=str(total))
+        await _safe_edit_ewallet_order_message(message, invoice, remaining, order_id=order_id,total=str(total))
 
-    await _safe_edit_ewallet_order_message(message, invoice, remaining_seconds=0, expired=True,total=str(total))
+    await _safe_edit_ewallet_order_message(message, invoice, remaining_seconds=0, order_id=order_id, expired=True,total=str(total))
     await _mark_ewallet_order_expired(invoice)
 
 
@@ -215,6 +219,7 @@ async def _safe_edit_ewallet_order_message(
     invoice,
     remaining_seconds: int,
     *,
+    order_id: int,
     total:str,
     paid: bool = False,
     expired: bool = False,
@@ -235,6 +240,7 @@ async def _safe_edit_ewallet_order_message(
         await message.edit_text(
             _format_invoice_message(invoice, remaining_seconds,total=str(total)),
             parse_mode="Markdown",
+            reply_markup=get_order_payment_cancel_keyboard(order_id),
         )
     except Exception:
         return

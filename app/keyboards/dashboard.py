@@ -77,8 +77,20 @@ def get_dashboard_section_keyboard(section: str, lang: str = "ar") -> InlineKeyb
         "other": [
             [
                 InlineKeyboardButton(
+                    text=t("dashboard.buttons.adjust_wallet_balance", lang),
+                    callback_data="dashboard:other:adjust_wallet_balance",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text=t("dashboard.buttons.change_egp_exchange_rate", lang),
                     callback_data="dashboard:other:change_egp_exchange_rate",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t("dashboard.buttons.set_special_products", lang),
+                    callback_data="dashboard:other:set_special_products",
                 )
             ],
             [
@@ -275,3 +287,35 @@ def _build_payment_methods_rows(lang: str) -> list[list[InlineKeyboardButton]]:
         )
 
     return rows
+
+
+def get_wallet_users_keyboard(users: list[tuple[str, str]], lang: str = "ar") -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"@{username} | {balance}",
+                callback_data=f"dashboard:other:wallet_user:{username}",
+            )
+        ]
+        for username, balance in users
+    ]
+    rows.append([InlineKeyboardButton(text=t("buttons.back_to_dashboard", lang), callback_data="dashboard:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_wallet_balance_action_keyboard(username: str, lang: str = "ar") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("dashboard.buttons.add_balance", lang),
+                    callback_data=f"dashboard:other:wallet_balance:add:{username}",
+                ),
+                InlineKeyboardButton(
+                    text=t("dashboard.buttons.cut_balance", lang),
+                    callback_data=f"dashboard:other:wallet_balance:cut:{username}",
+                ),
+            ],
+            [InlineKeyboardButton(text=t("buttons.back_to_dashboard", lang), callback_data="dashboard:home")],
+        ]
+    )

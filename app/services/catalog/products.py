@@ -34,18 +34,18 @@ class ProductService:
         client = self._get_client()
         response = (
             client.table(settings.supabase_products_table)
-            .select("id,title,description,quantity,supplier_price,price,created_at,credentials")
-            .order("created_at", desc=False)
+            .select("id,title,description,quantity,isSpecial,image,supplier_price,price,created_at,credentials")
             .execute()
         )
 
-        return [_map_product(item) for item in (response.data or [])]
+        products = [_map_product(item) for item in (response.data or [])]
+        return sorted(products, key=_product_sort_key)
 
     async def fetch_product_by_id(self, product_id: int) -> Product | None:
         client = self._get_client()
         response = (
             client.table(settings.supabase_products_table)
-            .select("id,title,description,quantity,supplier_price,price,created_at,credentials")
+            .select("id,title,description,quantity,isSpecial,image,supplier_price,price,created_at,credentials")
             .eq("id", product_id)
             .limit(1)
             .execute()
@@ -61,6 +61,7 @@ class ProductService:
         title: str,
         description: str,
         quantity: int,
+        image: str | None,
         supplier_price: Decimal,
         price: Decimal,
         credentials: object = "none",
@@ -71,6 +72,7 @@ class ProductService:
                 "title": title,
                 "description": description,
                 "quantity": quantity,
+                "image": image,
                 "supplier_price": str(supplier_price),
                 "price": str(price),
                 "credentials": credentials,
@@ -82,6 +84,7 @@ class ProductService:
                         "title": title,
                         "description": description,
                         "quantity": quantity,
+                        "image": image,
                         "supplier_price": str(supplier_price),
                         "price": str(price),
                         "credentials": credentials,
@@ -167,6 +170,23 @@ class ProductService:
 
         return _map_product(response.data[0])
 
+    async def mark_products_special(self, product_ids: list[int]) -> list[Product]:
+        if not product_ids:
+            return []
+
+        client = self._get_client()
+        try:
+            response = (
+                client.table(settings.supabase_products_table)
+                .update({"isSpecial": True})
+                .in_("id", product_ids)
+                .execute()
+            )
+        except APIError as error:
+            raise ProductServiceError(_extract_api_error_message(error)) from error
+
+        return [_map_product(item) for item in (response.data or [])]
+
     async def delete_product(self, product_id: int) -> bool:
         client = self._get_client()
         try:
@@ -189,6 +209,8 @@ def _map_product(item: dict) -> Product:
         title=str(item["title"]),
         description=str(item.get("description", "")),
         quantity=int(item.get("quantity") or 0),
+        is_special=_parse_bool(item.get("isSpecial")),
+        image=_optional_text(item.get("image")),
         supplier_price=Decimal(str(item.get("supplier_price") or "0")),
         price=Decimal(str(item.get("price") or "0")),
         created_at=_parse_datetime(item.get("created_at")),
@@ -239,3 +261,22 @@ def _parse_credentials(value: object) -> list[dict[str, str]]:
 
 def _uses_manual_activation_emails(value: object) -> bool:
     return isinstance(value, str) and value.strip().lower() == "none"
+
+
+def _parse_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y", "on"}
+    return False
+
+
+def _product_sort_key(product: Product) -> tuple[int, str]:
+    return (0 if product.is_special else 1, product.title.casefold())
+
+
+def _optional_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None

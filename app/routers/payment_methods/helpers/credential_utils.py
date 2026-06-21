@@ -78,6 +78,19 @@ def get_order_credentials_keyboard(order_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def get_order_payment_cancel_keyboard(order_id: int, lang: str = "ar") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("wallet.cancel_topup_button", lang),
+                    callback_data=f"order:payment:cancel:{order_id}",
+                )
+            ]
+        ]
+    )
+
+
 def has_valid_credentials(credentials: list[dict[str, str]]) -> bool:
     for item in credentials:
         email = str(item.get("email") or "").strip()

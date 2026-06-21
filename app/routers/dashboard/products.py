@@ -75,9 +75,21 @@ async def add_price_handler(message: Message, state: FSMContext) -> None:
         return
 
     await state.update_data(price=str(price))
+    await state.set_state(AddProductState.image)
+    await message.answer(t("dashboard.add.ask_image", "ar"))
+
+
+@router.message(AddProductState.image)
+async def add_image_handler(message: Message, state: FSMContext) -> None:
+    photo = message.photo[-1] if message.photo else None
+    if photo is None:
+        await message.answer(t("dashboard.validation.invalid_image", "ar"))
+        return
+
+    await state.update_data(image=photo.file_id)
     await state.set_state(AddProductState.account_type)
     await message.answer(
-        "اختر نوع الحساب:",
+        t("dashboard.add.ask_account_type", "ar"),
         reply_markup=get_account_type_keyboard("ar"),
     )
 
@@ -145,6 +157,7 @@ async def create_product_from_state(message: Message, state: FSMContext) -> None
             title=data["title"],
             description=data["description"],
             quantity=int(data["quantity"]),
+            image=str(data.get("image") or ""),
             supplier_price=Decimal(data["supplier_price"]),
             price=Decimal(str(data["price"])),
             credentials=data["credentials"],
@@ -224,6 +237,7 @@ async def dashboard_edit_select(callback: CallbackQuery, state: FSMContext) -> N
         original_title=product.title,
         original_description=product.description,
         original_quantity=product.quantity,
+        original_image=product.image,
         original_supplier_price=str(product.supplier_price),
         original_price=str(product.price),
     )

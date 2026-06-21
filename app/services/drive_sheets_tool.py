@@ -51,17 +51,22 @@ WALLET_TOPUPS_HEADERS = [
     "created_at",
 ]
 
-
 class DriveSheetsToolError(RuntimeError):
     """Raised when Drive sheets export cannot be synced."""
 
 
 async def sync_drive_sheets() -> None:
     export_dir = _get_export_dir()
+    logger.info("Drive sync started: export_dir=%s", export_dir)
     export_service = DashboardExportService()
     orders_rows, topups_rows = await asyncio.gather(
         export_service.fetch_orders_rows(),
         export_service.fetch_wallet_topups_rows(),
+    )
+    logger.info(
+        "Drive sync data loaded: orders_rows=%s wallet_topups_rows=%s",
+        len(orders_rows),
+        len(topups_rows),
     )
 
     orders_file = build_rows_excel(
@@ -77,6 +82,11 @@ async def sync_drive_sheets() -> None:
         "WalletTopups",
         "wallet_topups",
         export_dir,
+    )
+    logger.info(
+        "Drive sync files built: orders_file=%s wallet_topups_file=%s",
+        orders_file,
+        topups_file,
     )
 
     await asyncio.to_thread(
@@ -107,6 +117,7 @@ def _get_export_dir() -> Path:
 
 async def sync_drive_sheets_safely(reason: str = "") -> None:
     try:
+        logger.info("Drive sync safe wrapper invoked: reason=%s", reason or "-")
         await sync_drive_sheets()
         logger.info("Drive sheets sync completed: reason=%s", reason or "-")
     except Exception as error:
@@ -115,8 +126,10 @@ async def sync_drive_sheets_safely(reason: str = "") -> None:
 
 def schedule_drive_sheets_sync(reason: str = "") -> None:
     try:
+        logger.info("Drive sync scheduled on running loop: reason=%s", reason or "-")
         asyncio.get_running_loop().create_task(sync_drive_sheets_safely(reason))
     except RuntimeError:
+        logger.info("Drive sync running immediately via asyncio.run: reason=%s", reason or "-")
         asyncio.run(sync_drive_sheets_safely(reason))
 
 
@@ -127,11 +140,24 @@ def _upload_files_to_drive(files: dict[str, Path]) -> None:
         raise DriveSheetsToolError("Google Drive Dinventory folder id is missing.")
 
     auth_mode = (settings.google_drive_auth_mode or "service_account").strip().lower()
-    logger.info("Drive sheets upload started: auth_mode=%s folder_id=%s", auth_mode, folder_id)
+    logger.info(
+        "Drive sheets upload started: auth_mode=%s folder_id=%s files=%s",
+        auth_mode,
+        folder_id,
+        list(files.keys()),
+    )
     service_account_email: str | None = None
     if auth_mode in {"service_account", "service-account", "sa"}:
         credentials_path = _resolve_credentials_path(settings.google_service_account_json_path)
         service_account_email = _read_service_account_email(credentials_path)
+        logger.info(
+            "Drive service account credentials resolved: path=%s email=%s exists=%s",
+            credentials_path,
+            service_account_email or "-",
+            credentials_path.is_file(),
+        )
+    else:
+        logger.info("Drive OAuth mode selected")
 
     _assert_drive_folder_writable(
         drive_service=drive_service,
@@ -157,6 +183,7 @@ def _build_drive_service():
         ) from error
 
     auth_mode = (settings.google_drive_auth_mode or "service_account").strip().lower()
+    logger.info("Building Drive service: auth_mode=%s", auth_mode)
     if auth_mode in {"oauth", "user_oauth", "user-oauth"}:
         credentials = _build_oauth_credentials()
         return build("drive", "v3", credentials=credentials, cache_discovery=False)
@@ -174,6 +201,7 @@ def _build_service_account_credentials():
         ) from error
 
     credentials_path = _resolve_credentials_path(settings.google_service_account_json_path)
+    logger.info("Loading service account credentials from: %s", credentials_path)
     if not credentials_path.is_file():
         raise DriveSheetsToolError(f"Google service account JSON was not found: {credentials_path}")
 
@@ -194,39 +222,57 @@ def _build_oauth_credentials():
         ) from error
 
     client_secrets_path = _resolve_credentials_path(settings.google_oauth_client_secrets_path)
+    token_path = _resolve_credentials_path(settings.google_oauth_token_path)
+    logger.info(
+        "Loading OAuth credentials: client_secrets=%s token_path=%s flow=%s",
+        client_secrets_path,
+        token_path,
+        (settings.google_oauth_flow or "console").strip().lower(),
+    )
     if not client_secrets_path.is_file():
         raise DriveSheetsToolError(
             f"Google OAuth client secrets JSON was not found: {client_secrets_path}"
         )
 
-    token_path = _resolve_credentials_path(settings.google_oauth_token_path)
     creds: Credentials | None = None
 
     if token_path.is_file():
         try:
             creds = Credentials.from_authorized_user_file(str(token_path), scopes=DRIVE_SCOPES)
+            logger.info(
+                "Loaded existing OAuth token file: %s valid=%s expired=%s",
+                token_path,
+                bool(creds.valid),
+                bool(creds.expired),
+            )
         except Exception:
+            logger.exception("Failed to load OAuth token file: %s", token_path)
             creds = None
 
     if creds and creds.expired and creds.refresh_token:
+        logger.info("Refreshing expired OAuth credentials")
         creds.refresh(Request())
         _write_oauth_token(token_path, creds)
         return creds
 
     if creds and creds.valid:
+        logger.info("Using valid cached OAuth credentials")
         return creds
 
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=DRIVE_SCOPES)
     oauth_flow = (settings.google_oauth_flow or "console").strip().lower()
     if oauth_flow == "local_server":
+        logger.info("Starting OAuth local server flow")
         creds = flow.run_local_server(port=0)
     else:
         # google-auth-oauthlib added `run_console()` in newer versions.
         # Older versions can still complete an "interactive console" auth by using the local server flow
         # without opening a browser (it prints the URL instead).
         if hasattr(flow, "run_console"):
+            logger.info("Starting OAuth console flow")
             creds = flow.run_console()
         else:
+            logger.info("Starting OAuth fallback local server flow without browser")
             creds = flow.run_local_server(port=0, open_browser=False)
 
     _write_oauth_token(token_path, creds)
@@ -237,6 +283,7 @@ def _write_oauth_token(token_path: Path, creds) -> None:
     try:
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json(), encoding="utf-8")
+        logger.info("OAuth token written: %s", token_path)
     except Exception as error:
         raise DriveSheetsToolError(
             f"Failed to write OAuth token file: {token_path}. Error: {error}"
@@ -252,6 +299,7 @@ def _assert_drive_folder_writable(*, drive_service, folder_id: str, service_acco
         ) from error
 
     try:
+        logger.info("Verifying Drive folder access: folder_id=%s", folder_id)
         folder = (
             drive_service.files()
             .get(
@@ -262,6 +310,7 @@ def _assert_drive_folder_writable(*, drive_service, folder_id: str, service_acco
             .execute()
         )
     except HttpError as error:
+        logger.exception("Drive folder access check failed: folder_id=%s", folder_id)
         auth_mode = (settings.google_drive_auth_mode or "service_account").strip().lower()
         authed_user = _try_get_authed_user_email(drive_service)
         if auth_mode in {"oauth", "user_oauth", "user-oauth"}:
@@ -318,10 +367,24 @@ def _replace_drive_file(*, drive_service, folder_id: str, drive_name: str, file_
         ) from error
 
     media = MediaFileUpload(str(file_path), mimetype=DRIVE_MIME_XLSX, resumable=False)
+    logger.info(
+        "Preparing Drive file sync: folder_id=%s name=%s local=%s size=%s",
+        folder_id,
+        drive_name,
+        file_path,
+        file_path.stat().st_size if file_path.exists() else -1,
+    )
     existing_file_id = _find_drive_file_id(drive_service, folder_id, drive_name)
+    logger.info(
+        "Drive file lookup finished: folder_id=%s name=%s existing_file_id=%s",
+        folder_id,
+        drive_name,
+        existing_file_id or "-",
+    )
 
     try:
         if existing_file_id:
+            logger.info("Updating existing Drive file: name=%s id=%s", drive_name, existing_file_id)
             result = drive_service.files().update(
                 fileId=existing_file_id,
                 media_body=media,
@@ -338,6 +401,7 @@ def _replace_drive_file(*, drive_service, folder_id: str, drive_name: str, file_
             )
             return
 
+        logger.info("Creating new Drive file: name=%s folder_id=%s", drive_name, folder_id)
         result = drive_service.files().create(
             body={
                 "name": drive_name,
@@ -368,6 +432,7 @@ def _replace_drive_file(*, drive_service, folder_id: str, drive_name: str, file_
 
 def _find_drive_file_id(drive_service, folder_id: str, drive_name: str) -> str | None:
     escaped_name = drive_name.replace("\\", "\\\\").replace("'", "\\'")
+    logger.info("Searching Drive file: folder_id=%s name=%s", folder_id, drive_name)
     response = drive_service.files().list(
         q=f"name = '{escaped_name}' and '{folder_id}' in parents and trashed = false",
         spaces="drive",
@@ -378,6 +443,12 @@ def _find_drive_file_id(drive_service, folder_id: str, drive_name: str) -> str |
     ).execute()
 
     files = response.get("files") or []
+    logger.info(
+        "Drive file search result: folder_id=%s name=%s matches=%s",
+        folder_id,
+        drive_name,
+        len(files),
+    )
     if not files:
         return None
 

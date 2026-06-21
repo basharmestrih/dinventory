@@ -2,8 +2,15 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.keyboards.dashboard import get_dashboard_section_keyboard
+from decimal import Decimal
+
+from app.keyboards.dashboard import (
+    get_dashboard_section_keyboard,
+    get_wallet_balance_action_keyboard,
+    get_wallet_users_keyboard,
+)
 from app.routers.dashboard.shared import is_admin
+from app.services.catalog.products import SupabaseConfigError
 from app.services.payments.exchange_rate import (
     DEFAULT_EGP_EXCHANGE_RATE,
     get_egp_exchange_rate,
@@ -20,6 +27,8 @@ from app.services.payments.binance_settings import (
     parse_binance_id,
     set_binance_id,
 )
+from app.routers.dashboard.shared import product_service
+from app.services.wallets.wallets import WalletService, WalletServiceError
 from app.services.support_settings import (
     get_support_username,
     get_support_whatsapp_phone,
@@ -39,6 +48,7 @@ from app.translations import t
 
 
 router = Router(name="dashboard_other")
+wallet_service = WalletService()
 
 
 @router.callback_query(F.data == "dashboard:other:change_egp_exchange_rate")
@@ -56,6 +66,146 @@ async def dashboard_change_egp_exchange_rate_start(
         t("dashboard.messages.ask_egp_exchange_rate", "ar").format(
             current_rate=_format_rate(get_egp_exchange_rate()),
             default_rate=_format_rate(DEFAULT_EGP_EXCHANGE_RATE),
+        )
+    )
+
+
+@router.callback_query(F.data == "dashboard:other:set_special_products")
+async def dashboard_set_special_products_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer(t("dashboard.messages.access_denied", "ar"), show_alert=True)
+        return
+
+    try:
+        products = await product_service.fetch_products()
+    except Exception:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.products_load_failed", "ar"))
+        return
+
+    if not products:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.no_products", "ar"))
+        return
+
+    await state.update_data(
+        special_products=[{"id": product.id, "title": product.title} for product in products]
+    )
+    await state.set_state(DashboardOtherState.waiting_for_special_products)
+    await callback.answer()
+    await callback.message.answer(
+        t("dashboard.messages.ask_special_products", "ar").format(
+            products_list=_format_numbered_products(products),
+        )
+    )
+
+
+@router.callback_query(F.data == "dashboard:other:adjust_wallet_balance")
+async def dashboard_adjust_wallet_balance_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer(t("dashboard.messages.access_denied", "ar"), show_alert=True)
+        return
+
+    try:
+        wallets = await wallet_service.fetch_wallets()
+    except SupabaseConfigError:
+        await callback.answer()
+        await callback.message.answer(t("sections.supabase_not_configured", "ar"))
+        return
+    except WalletServiceError as error:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.wallet_users_load_failed_with_reason", "ar").format(reason=str(error)))
+        return
+    except Exception as error:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.wallet_users_load_failed_with_reason", "ar").format(reason=str(error)))
+        return
+
+    if not wallets:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.no_wallet_users", "ar"))
+        return
+
+    await state.clear()
+    await callback.answer()
+    await callback.message.answer(
+        t("dashboard.messages.ask_wallet_user", "ar"),
+        reply_markup=get_wallet_users_keyboard(
+            [(wallet.username, _format_wallet_balance(wallet.balance_egp)) for wallet in wallets],
+            "ar",
+        ),
+    )
+
+
+@router.callback_query(F.data.startswith("dashboard:other:wallet_user:"))
+async def dashboard_wallet_user_selected(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer(t("dashboard.messages.access_denied", "ar"), show_alert=True)
+        return
+
+    username = callback.data.rsplit(":", maxsplit=1)[-1]
+    if not username:
+        await callback.answer()
+        return
+
+    try:
+        wallet = await wallet_service.ensure_wallet(username)
+    except SupabaseConfigError:
+        await callback.answer()
+        await callback.message.answer(t("sections.supabase_not_configured", "ar"))
+        return
+    except WalletServiceError as error:
+        await callback.answer()
+        await callback.message.answer(t("dashboard.messages.wallet_user_load_failed_with_reason", "ar").format(reason=str(error)))
+        return
+
+    await state.update_data(wallet_username=username)
+    await callback.answer()
+    await callback.message.answer(
+        t("dashboard.messages.ask_wallet_action", "ar").format(
+            username=wallet.username,
+            balance=_format_wallet_balance(wallet.balance_egp),
+        ),
+        reply_markup=get_wallet_balance_action_keyboard(username, "ar"),
+    )
+
+
+@router.callback_query(F.data.startswith("dashboard:other:wallet_balance:"))
+async def dashboard_wallet_balance_action_selected(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer(t("dashboard.messages.access_denied", "ar"), show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) < 5:
+        await callback.answer()
+        return
+
+    action = parts[3]
+    username = parts[4]
+    if action not in {"add", "cut"} or not username:
+        await callback.answer()
+        return
+
+    await state.update_data(wallet_username=username, wallet_balance_action=action)
+    await state.set_state(DashboardOtherState.waiting_for_wallet_balance_amount)
+    await callback.answer()
+    await callback.message.answer(
+        t("dashboard.messages.ask_wallet_balance_amount", "ar").format(
+            action=t(f"dashboard.buttons.{ 'add_balance' if action == 'add' else 'cut_balance' }", "ar"),
+            username=username,
         )
     )
 
@@ -181,6 +331,90 @@ async def dashboard_change_instapay_phone_number_submit(
         t("dashboard.messages.instapay_phone_number_updated", "ar").format(
             old_phone_number=old_phone_number,
             new_phone_number=phone_number,
+        ),
+        reply_markup=get_dashboard_section_keyboard("other", "ar"),
+    )
+
+
+@router.message(DashboardOtherState.waiting_for_special_products)
+async def dashboard_set_special_products_submit(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer(t("dashboard.messages.access_denied", "ar"))
+        return
+
+    data = await state.get_data()
+    products_data = data.get("special_products")
+    if not isinstance(products_data, list) or not products_data:
+        await state.clear()
+        await message.answer(t("dashboard.messages.products_load_failed", "ar"))
+        return
+
+    choices = _parse_numeric_choices(message.text or "", len(products_data))
+    if choices is None:
+        await message.answer(t("dashboard.messages.invalid_special_products_selection", "ar"))
+        return
+
+    selected_products = [products_data[index - 1] for index in choices]
+    updated_products = await product_service.mark_products_special(
+        [int(item["id"]) for item in selected_products]
+    )
+    await state.clear()
+    await message.answer(
+        t("dashboard.messages.special_products_updated", "ar").format(
+            updated_count=len(updated_products),
+            selected_items=_format_selected_products(selected_products),
+        ),
+        reply_markup=get_dashboard_section_keyboard("other", "ar"),
+    )
+
+
+@router.message(DashboardOtherState.waiting_for_wallet_balance_amount)
+async def dashboard_wallet_balance_amount_submit(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    if not is_admin(message.from_user.id if message.from_user else None):
+        await message.answer(t("dashboard.messages.access_denied", "ar"))
+        return
+
+    data = await state.get_data()
+    username = str(data.get("wallet_username") or "").strip()
+    action = str(data.get("wallet_balance_action") or "").strip()
+    if action not in {"add", "cut"} or not username:
+        await state.clear()
+        await message.answer(t("dashboard.messages.wallet_balance_context_lost", "ar"), reply_markup=get_dashboard_section_keyboard("other", "ar"))
+        return
+
+    try:
+        amount = Decimal((message.text or "").strip())
+        if amount <= 0:
+            raise ValueError
+    except Exception:
+        await message.answer(t("dashboard.messages.invalid_wallet_balance_amount", "ar"))
+        return
+
+    try:
+        if action == "add":
+            wallet = await wallet_service.apply_topup(username, amount)
+        else:
+            wallet = await wallet_service.deduct_purchase_amount(username, amount)
+    except WalletServiceError as error:
+        await message.answer(t("dashboard.messages.wallet_balance_update_failed_with_reason", "ar").format(reason=str(error)))
+        return
+    except SupabaseConfigError:
+        await message.answer(t("sections.supabase_not_configured", "ar"))
+        return
+
+    await state.clear()
+    await message.answer(
+        t("dashboard.messages.wallet_balance_updated", "ar").format(
+            username=wallet.username,
+            action=t(f"dashboard.buttons.{ 'add_balance' if action == 'add' else 'cut_balance' }", "ar"),
+            amount=_format_wallet_balance(amount),
+            balance=_format_wallet_balance(wallet.balance_egp),
         ),
         reply_markup=get_dashboard_section_keyboard("other", "ar"),
     )
@@ -323,6 +557,35 @@ async def dashboard_change_support_whatsapp_phone_submit(
 
 def _format_rate(value) -> str:
     return f"{value:.2f}"
+
+
+def _format_wallet_balance(value: Decimal) -> str:
+    return f"{value:.2f}"
+
+
+def _format_numbered_products(products) -> str:
+    return "\n".join(f"{index}. {product.title}" for index, product in enumerate(products, start=1))
+
+
+def _format_selected_products(products_data) -> str:
+    return ", ".join(f"{index}. {item['title']}" for index, item in enumerate(products_data, start=1))
+
+
+def _parse_numeric_choices(value: str, max_count: int) -> list[int] | None:
+    tokens = [token.strip() for token in value.replace(",", " ").split()]
+    if not tokens:
+        return None
+
+    choices: list[int] = []
+    for token in tokens:
+        if not token.isdigit():
+            return None
+        number = int(token)
+        if number < 1 or number > max_count or number in choices:
+            return None
+        choices.append(number)
+
+    return choices
 
 
 def _format_placeholders(message_key: str) -> str:

@@ -16,6 +16,8 @@ from app.routers.payment_methods.helpers.credential_utils import (
     map_review_action_to_status,
     parse_activation_emails,
 )
+from app.services.payments.binance_countdown import mark_checkout_cancelled
+from app.services.payments.fawaterk_invoice_countdown import mark_invoice_cancelled
 from app.states.purchase import PurchaseState
 from app.translations import t
 from app.routers.payment_methods.helpers.services import order_service
@@ -238,6 +240,54 @@ async def activation_order_handler(callback: CallbackQuery, state: FSMContext) -
         order_id=order_id,
         new_status=new_status,
     )
+
+
+@router.callback_query(F.data.startswith("order:payment:cancel:"))
+async def order_payment_cancel_handler(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    if len(parts) != 4:
+        await callback.answer()
+        return
+
+    try:
+        order_id = int(parts[-1])
+    except ValueError:
+        await callback.answer()
+        return
+
+    try:
+        current_order = await order_service.fetch_order_by_id(order_id)
+    except (SupabaseConfigError, OrderServiceError):
+        await callback.answer()
+        return
+
+    if current_order is None:
+        await callback.answer()
+        return
+
+    if current_order.status.strip().lower() != "pending":
+        await callback.answer()
+        return
+
+    try:
+        await order_service.update_order_status(order_id, "expired")
+    except (SupabaseConfigError, OrderServiceError):
+        await callback.answer()
+        return
+
+    payment_method = current_order.payment_method.strip().lower()
+    if payment_method == "binance" and current_order.transaction_id:
+        mark_checkout_cancelled(current_order.transaction_id)
+    elif payment_method in {"wallet", "mobile wallet", "fawry"} and current_order.transaction_id:
+        mark_invoice_cancelled(current_order.transaction_id)
+
+    try:
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await callback.answer(t("wallet.topup_cancelled", "ar"))
 
 
 @router.message(PurchaseState.waiting_for_activation_note)

@@ -47,6 +47,8 @@ def original_product_from_state(data: dict) -> Product:
         title=str(data["original_title"]),
         description=str(data["original_description"]),
         quantity=int(data["original_quantity"]),
+        is_special=bool(data.get("original_is_special", False)),
+        image=str(data["original_image"]) if data.get("original_image") else None,
         supplier_price=Decimal(str(data["original_supplier_price"])),
         price=Decimal(str(data["original_price"])),
         created_at=None,

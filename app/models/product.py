@@ -9,6 +9,8 @@ class Product:
     title: str
     description: str
     quantity: int
+    is_special: bool
+    image: str | None
     supplier_price: Decimal
     price: Decimal
     created_at: datetime | None

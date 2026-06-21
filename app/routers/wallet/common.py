@@ -351,6 +351,38 @@ async def wallet_rejection_message_handler(message: Message, state: FSMContext) 
     await message.answer("تم رفض طلب الإيداع وإرسال رسالتك للمستخدم.")
 
 
+@router.callback_query(F.data.startswith("wallet:topup:cancel:"))
+async def wallet_topup_cancel_handler(callback: CallbackQuery) -> None:
+    request_id = callback.data.rsplit(":", maxsplit=1)[-1]
+    request = await get_wallet_topup_request(request_id)
+    if request is None:
+        await callback.answer()
+        return
+
+    if str(request.status or "").strip().lower() != "pending":
+        await callback.answer()
+        return
+
+    await update_wallet_topup_status(request.id, "expired")
+
+    try:
+        from app.routers.wallet.helpers.binance import mark_wallet_topup_countdown_cancelled
+        from app.routers.wallet.helpers.ewallet import mark_wallet_topup_countdown_cancelled as mark_ewallet_countdown_cancelled
+
+        if request.transaction_id:
+            mark_wallet_topup_countdown_cancelled(request.transaction_id)
+        mark_ewallet_countdown_cancelled(request.id)
+    except Exception:
+        pass
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await callback.answer(t("wallet.topup_cancelled", "ar"))
+
+
 def _get_topup_amount_egp(request: WalletTopUpRequest) -> Decimal:
     if request.currency.upper() == "USD":
         return request.amount * get_egp_exchange_rate()

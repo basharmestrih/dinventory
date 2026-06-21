@@ -1,5 +1,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.translations import t
+
 
 def get_wallet_topup_methods_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -26,6 +28,19 @@ def get_wallet_topup_methods_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
                     callback_data="wallet:topup:instapay",
                 ),
             ],
+        ]
+    )
+
+
+def get_wallet_topup_cancel_keyboard(request_id: str, lang: str = "ar") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t("wallet.cancel_topup_button", lang),
+                    callback_data=f"wallet:topup:cancel:{request_id}",
+                )
+            ]
         ]
     )
 

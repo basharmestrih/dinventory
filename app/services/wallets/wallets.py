@@ -52,6 +52,26 @@ class WalletService:
         except Exception as error:
             raise WalletServiceError(f"Invalid wallet data format: {error}") from error
 
+    async def fetch_wallets(self, limit: int | None = None) -> list[WalletBalance]:
+        client = self._get_client()
+
+        query = client.table(settings.supabase_wallet_table).select(
+            "username,balance_usd,balance_egp,last_deposit_at"
+        ).order("username", desc=False)
+        if limit is not None:
+            query = query.limit(limit)
+
+        try:
+            response = query.execute()
+        except APIError as error:
+            raise WalletServiceError(_extract_api_error_message(error)) from error
+
+        items = response.data or []
+        try:
+            return [_map_wallet_balance(item) for item in items]
+        except Exception as error:
+            raise WalletServiceError(f"Invalid wallet data format: {error}") from error
+
     async def ensure_wallet(self, username: str) -> WalletBalance:
         existing_wallet = await self.fetch_wallet_by_username(username)
         if existing_wallet is not None:
@@ -95,8 +115,6 @@ class WalletService:
             raise WalletServiceError("Purchase amount must be greater than zero.")
 
         wallet = await self.ensure_wallet(username)
-        print(wallet.balance_egp)
-        print(amount_egp)
         if wallet.balance_egp < amount_egp:
             raise WalletServiceError("Insufficient wallet balance.")
 

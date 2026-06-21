@@ -43,3 +43,7 @@ async def update_wallet_topup_transaction_id(request_id: str, transaction_id: st
 
 async def update_wallet_topup_status(request_id: str, status: str) -> WalletTopUpRequest | None:
     return await wallet_topup_service.update_status(request_id, status)
+
+
+async def cancel_wallet_topup_request(request_id: str) -> WalletTopUpRequest | None:
+    return await wallet_topup_service.update_status(request_id, "expired")

@@ -4,6 +4,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.keyboards.support import get_support_keyboard
 from app.keyboards.payment_methods import get_payment_methods_keyboard
 from app.keyboards.products import get_adobe_duration_keyboard
 from app.services.adobe import ADOBE_DURATION_OPTIONS, get_duration_price, is_adobe_product
@@ -36,7 +37,10 @@ async def selected_product_handler(callback: CallbackQuery, state: FSMContext) -
         return
 
     if product.quantity <= 0:
-        await callback.message.answer(t("purchase.product_out_of_stock", "ar"))
+        await callback.message.answer(
+            t("sections.product_unavailable_support", "ar"),
+            reply_markup=get_support_keyboard("ar"),
+        )
         return
 
     await state.update_data(
@@ -66,13 +70,17 @@ async def selected_product_handler(callback: CallbackQuery, state: FSMContext) -
 
     await state.set_state(PurchaseState.waiting_for_quantity)
 
-    await callback.message.answer(
-        t("purchase.selected_product", "ar").format(
-            title=_display_text(product.title),
-            description=_display_text(product.description),
-            max_quantity=product.quantity,
-        )
+    caption = t("purchase.selected_product", "ar").format(
+        title=_display_text(product.title),
+        description=_display_text(product.description),
+        price=_format_price(product.price),
+        quantity=product.quantity,
     )
+    if product.image:
+        await callback.message.answer_photo(photo=product.image, caption=caption)
+        return
+
+    await callback.message.answer(caption)
 
 
 @router.message(PurchaseState.waiting_for_quantity)

@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from aiogram.types import BufferedInputFile, Message
 
+from app.keyboards.wallet import get_wallet_topup_cancel_keyboard
 from app.routers.payment_methods.admin_notifications import format_price
 from app.services.payments.ewallet_utils import build_qr_code_image, split_name
 from app.services.payments.ewallet_constants import (
@@ -22,6 +23,7 @@ from app.services.payments.payment_method_usage import PaymentMethodUsageService
 
 ewallet_service = EWalletService()
 payment_method_usage_service = PaymentMethodUsageService()
+_ewallet_topup_countdown_active: dict[str, bool] = {}
 
 
 async def create_wallet_ewallet_invoice(
@@ -73,6 +75,7 @@ async def create_wallet_ewallet_invoice(
     except Exception:
         pass
     await state.clear()
+    _ewallet_topup_countdown_active[request.id] = True
     expires_at = (
         datetime.now(timezone.utc) + timedelta(hours=12)
         if invoice.payment_method_id == FAWRY_PAYMENT_METHOD_ID
@@ -86,6 +89,7 @@ async def create_wallet_ewallet_invoice(
         response_message = await message.answer(
             _format_wallet_invoice_message(invoice, amount),
             parse_mode="Markdown",
+            reply_markup=get_wallet_topup_cancel_keyboard(request.id),
         )
         asyncio.create_task(
             _run_ewallet_countdown(response_message, invoice, amount, expires_at, request.id)
@@ -95,6 +99,7 @@ async def create_wallet_ewallet_invoice(
     response_message = await message.answer(
         _format_wallet_invoice_message(invoice, amount),
         parse_mode="Markdown",
+        reply_markup=get_wallet_topup_cancel_keyboard(request.id),
     )
     asyncio.create_task(_run_ewallet_countdown(response_message, invoice, amount, expires_at, request.id))
 
@@ -150,16 +155,19 @@ async def _run_ewallet_countdown(
 ) -> None:
     remaining = get_remaining_seconds(expires_at)
     if remaining <= 0:
-        await _safe_edit_ewallet_message(message, invoice, amount, remaining, expired=True)
+        await _safe_edit_ewallet_message(message, invoice, amount, remaining, request_id, expired=True)
         await _mark_wallet_topup_expired(request_id)
         return
 
     while remaining > 0:
         await asyncio.sleep(1)
+        if not _ewallet_topup_countdown_active.get(request_id, True):
+            await _safe_edit_ewallet_message(message, invoice, amount, remaining, request_id, cancelled=True)
+            return
         remaining = get_remaining_seconds(expires_at)
-        await _safe_edit_ewallet_message(message, invoice, amount, remaining)
+        await _safe_edit_ewallet_message(message, invoice, amount, remaining, request_id)
 
-    await _safe_edit_ewallet_message(message, invoice, amount, remaining_seconds=0, expired=True)
+    await _safe_edit_ewallet_message(message, invoice, amount, remaining_seconds=0, request_id=request_id, expired=True)
     await _mark_wallet_topup_expired(request_id)
 
 
@@ -168,10 +176,18 @@ async def _safe_edit_ewallet_message(
     invoice,
     amount: Decimal,
     remaining_seconds: int,
+    request_id: str,
     *,
     expired: bool = False,
+    cancelled: bool = False,
 ) -> None:
     try:
+        if cancelled:
+            await message.edit_text(
+                _format_wallet_invoice_cancelled_message(invoice, amount),
+                parse_mode="Markdown",
+            )
+            return
         if expired:
             await message.edit_text(
                 _format_wallet_invoice_expired_message(invoice, amount),
@@ -181,6 +197,7 @@ async def _safe_edit_ewallet_message(
         await message.edit_text(
             _format_wallet_invoice_message(invoice, amount, remaining_seconds),
             parse_mode="Markdown",
+            reply_markup=get_wallet_topup_cancel_keyboard(request_id),
         )
     except Exception:
         return
@@ -209,6 +226,23 @@ def _format_wallet_invoice_expired_message(invoice, amount: Decimal) -> str:
     )
 
 
+def _format_wallet_invoice_cancelled_message(invoice, amount: Decimal) -> str:
+    if invoice.payment_method_id == FAWRY_PAYMENT_METHOD_ID:
+        return (
+            "💵 *إيداع المحفظة عبر فوري*\n\n"
+            "⛔️ تم إلغاء عملية الإيداع.\n\n"
+            f"💰 مبلغ الإيداع: `{format_price(amount)} EGP`\n\n"
+            "يمكنك إنشاء طلب جديد في أي وقت."
+        )
+
+    return (
+        "📱 *إيداع المحفظة عبر محفظة الموبايل*\n\n"
+        "⛔️ تم إلغاء عملية الإيداع.\n\n"
+        f"💰 مبلغ الإيداع: `{format_price(amount)} EGP`\n\n"
+        "يمكنك إنشاء طلب جديد في أي وقت."
+    )
+
+
 async def _mark_wallet_topup_expired(request_id: str) -> None:
     request_id = str(request_id or "").strip()
     if not request_id:
@@ -228,3 +262,10 @@ async def _mark_wallet_topup_expired(request_id: str) -> None:
         await update_wallet_topup_status(request_id, "expired")
     except Exception:
         return
+
+
+def mark_wallet_topup_countdown_cancelled(request_id: str) -> None:
+    request_id = str(request_id or "").strip()
+    if not request_id:
+        return
+    _ewallet_topup_countdown_active[request_id] = False

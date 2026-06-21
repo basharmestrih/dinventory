@@ -22,6 +22,9 @@ TRANSLATIONS = {
             "dashboard": "لوحة التحكم",
             "back_to_menu": "الرجوع للقائمة",
             "back_to_dashboard": "الرجوع للوحة التحكم",
+            "contact_support_telegram_button": "تليجرام",
+            "contact_support_whatsapp_button": "واتساب",
+            "set_special_products": "تحديد المنتجات المميزة",
         },
         "sections": {
             "buy": "🛍️ قسم الشراء: هنا يمكنك تصفح المنتجات الرقمية المتاحة للشراء.",
@@ -35,9 +38,22 @@ TRANSLATIONS = {
             "supabase_not_configured": "لم يتم إعداد اتصال Supabase بعد. أضف بياناته في ملف .env.",
             "product_selected": "تم اختيار المنتج.",
             "product_not_found": "هذا المنتج غير موجود أو تم حذفه.",
+            "product_unavailable_support": (
+                "هذا المنتج غير متوفر حاليا.\n\n"
+                "يرجى التواصل مع الدعم عبر واتساب أو تليجرام."
+            ),
         },
         "purchase": {
-            "selected_product": "لقد اخترت:\nالعنوان: {title}\nالوصف: {description}\n\nأرسل الكمية المطلوبة.\nالحد الأقصى المتاح: {max_quantity}",
+            "selected_product": (
+                "✨🤖المنتج:  {title}\n\n"
+                "📝 التفاصيل:\n"
+                "{description}\n"
+                "💰 السعر:\n"
+                "{price} جنيه مصري\n\n"
+                "📦 الكمية المتوفرة:\n"
+                "{quantity} حساب\n\n"
+                "ادخل الكمية المطلوبة (مثال: 1 , 5)"
+            ),
             "product_out_of_stock": "هذا المنتج غير متوفر حاليا.",
             "invalid_quantity": "أرسل كمية صحيحة من 1 إلى {max_quantity}.",
             "ask_duration": "اختر مدة الاشتراك:",
@@ -278,6 +294,9 @@ TRANSLATIONS["ar"]["purchase"]["binance_instructions"] = (
 
 TRANSLATIONS["ar"]["dashboard"]["buttons"]["other"] = "اخرى"
 TRANSLATIONS["ar"]["dashboard"]["buttons"]["change_egp_exchange_rate"] = "تغيير سعر صرف الجنيه"
+TRANSLATIONS["ar"]["dashboard"]["buttons"]["adjust_wallet_balance"] = "إضافة / خصم رصيد"
+TRANSLATIONS["ar"]["dashboard"]["buttons"]["add_balance"] = "إضافة رصيد"
+TRANSLATIONS["ar"]["dashboard"]["buttons"]["cut_balance"] = "خصم رصيد"
 TRANSLATIONS["ar"]["dashboard"]["messages"]["other_section"] = "قسم الإعدادات الأخرى."
 TRANSLATIONS["ar"]["dashboard"]["messages"]["ask_egp_exchange_rate"] = (
     "أرسل الآن سعر صرف الجنيه الجديد.\n"
@@ -291,6 +310,45 @@ TRANSLATIONS["ar"]["dashboard"]["messages"]["egp_exchange_rate_updated"] = (
     "تم تحديث سعر صرف الجنيه بنجاح.\n"
     "السعر السابق: {old_rate}\n"
     "السعر الجديد: {new_rate}"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["ask_special_products"] = (
+    "اختر المنتجات المميزة عبر أرقامها، مفصولة بمسافة أو فاصلة.\n\n"
+    "{products_list}"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["ask_wallet_user"] = "اختر المستخدم الذي تريد تعديل رصيده:"
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_users_load_failed"] = "حدث خطأ أثناء جلب مستخدمي المحفظة."
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_users_load_failed_with_reason"] = (
+    "حدث خطأ أثناء جلب مستخدمي المحفظة:\n{reason}"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["no_wallet_users"] = "لا توجد محافظ متاحة حاليًا."
+TRANSLATIONS["ar"]["dashboard"]["messages"]["ask_wallet_action"] = (
+    "المستخدم: @{username}\n"
+    "الرصيد الحالي: {balance} جنيه مصري\n\n"
+    "اختر العملية المطلوبة:"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["ask_wallet_balance_amount"] = (
+    "اختر رصيد المستخدم @{username} ثم أرسل المبلغ المطلوب لتنفيذ عملية {action}."
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["invalid_wallet_balance_amount"] = "أرسل مبلغًا صحيحًا أكبر من صفر."
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_balance_update_failed"] = "حدث خطأ أثناء تعديل الرصيد."
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_balance_update_failed_with_reason"] = (
+    "حدث خطأ أثناء تعديل الرصيد:\n{reason}"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_balance_updated"] = (
+    "تم تنفيذ عملية {action} بنجاح للمستخدم @{username}.\n"
+    "المبلغ: {amount} جنيه مصري\n"
+    "الرصيد الحالي: {balance} جنيه مصري"
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["wallet_balance_context_lost"] = (
+    "تعذر تحديد المستخدم أو العملية. ابدأ العملية من جديد."
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["invalid_special_products_selection"] = (
+    "أرسل أرقام صحيحة فقط، مفصولة بمسافة أو فاصلة."
+)
+TRANSLATIONS["ar"]["dashboard"]["messages"]["special_products_updated"] = (
+    "تم تحديث المنتجات المميزة بنجاح.\n"
+    "عدد المنتجات المحددة: {updated_count}\n"
+    "المنتجات: {selected_items}"
 )
 
 TRANSLATIONS["ar"]["purchase"]["order_credential_item"] = "{email} | {password}"
@@ -370,3 +428,9 @@ TRANSLATIONS["ar"]["wallet"]["topup_rejected_to_user"] = (
 )
 
 TRANSLATIONS["ar"]["dashboard"]["buttons"]["edit_credentials"] = "تعديل بيانات الحسابات"
+TRANSLATIONS["ar"]["dashboard"]["buttons"]["set_special_products"] = "تحديد المنتجات المميزة"
+TRANSLATIONS["ar"]["dashboard"]["add"]["ask_image"] = "أرسل صورة المنتج."
+TRANSLATIONS["ar"]["dashboard"]["add"]["ask_account_type"] = "اختر نوع الحساب:"
+TRANSLATIONS["ar"]["dashboard"]["validation"]["invalid_image"] = "أرسل صورة من فضلك."
+TRANSLATIONS["ar"]["wallet"]["cancel_topup_button"] = "إلغاء عملية الإيداع"
+TRANSLATIONS["ar"]["wallet"]["topup_cancelled"] = "تم إلغاء عملية الإيداع وتم اعتبار الطلب منتهيًا."
